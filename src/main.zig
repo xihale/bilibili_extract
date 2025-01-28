@@ -3,17 +3,30 @@ const json = std.json;
 
 const Info = struct { input_path: []const u8, output_file: []const u8 };
 
+const writer = std.io.getStdOut().writer();
+
 // receive path & info
 fn conv(allocator: std.mem.Allocator, info: Info) !void {
-    std.log.debug("Starting conversion for: {s}\n", .{info.input_path});
+
+    // if exists, return the action flow
+    blk: {
+        std.fs.accessAbsolute(info.output_file, .{}) catch |err| switch (err) {
+            error.FileNotFound => break :blk,
+            else => return err,
+        };
+        try writer.writeAll("output_file already exists, skipped.\n\n");
+        return;
+    }
+
+    try writer.print("Starting conversion for: {s}\n", .{info.input_path});
 
     const video_file = try std.mem.concat(allocator, u8, &[_][]const u8{ info.input_path, "/", "video.m4s" });
-    std.log.debug("Video File: {s}\n", .{video_file});
+    // std.log.debug("Video File: {s}\n", .{video_file});
 
     const audio_file = try std.mem.concat(allocator, u8, &[_][]const u8{ info.input_path, "/", "audio.m4s" });
-    std.log.debug("Audio File: {s}\n", .{audio_file});
+    // std.log.debug("Audio File: {s}\n", .{audio_file});
 
-    std.log.debug("Output File: {s}\n", .{info.output_file});
+    // std.log.debug("Output File: {s}\n", .{info.output_file});
 
     // const ffmpeg_cmd = "ffmpeg";
     const argv = [_][]const u8{
@@ -29,7 +42,7 @@ fn conv(allocator: std.mem.Allocator, info: Info) !void {
         info.output_file,
     };
 
-    std.log.debug("Running ffmpeg with arguments: {s}\n", .{argv});
+    // std.log.debug("Running ffmpeg with arguments: {s}\n", .{argv});
 
     var ffmpeg_process = std.process.Child.init(&argv, allocator);
     ffmpeg_process.stdout_behavior = .Ignore;
@@ -38,9 +51,9 @@ fn conv(allocator: std.mem.Allocator, info: Info) !void {
     const term = try ffmpeg_process.wait();
 
     if (term.Exited != 0) {
-        std.debug.print("FFmpeg exited with code {d}\n\n\n", .{term.Exited});
+        std.debug.print("FFmpeg exited with code {d}\n\n", .{term.Exited});
     } else {
-        std.debug.print("Successfully merged audio and video into {s}\n\n\n", .{info.output_file});
+        std.debug.print("Successfully merged audio and video into \"{s}\"\n\n", .{info.output_file});
     }
 }
 
@@ -83,7 +96,7 @@ const InfoError = error{
 };
 
 fn parse_info_json(allocator: std.mem.Allocator, info_json_raw: []const u8) !Info {
-    std.log.debug("Parsing JSON info\n", .{});
+    // std.log.debug("Parsing JSON info\n", .{});
     const json_parsed = try std.json.parseFromSlice(std.json.Value, allocator, info_json_raw, .{});
     json_parsed.deinit();
 
@@ -102,29 +115,29 @@ fn parse_info_json(allocator: std.mem.Allocator, info_json_raw: []const u8) !Inf
 }
 
 fn conv_all(allocator: std.mem.Allocator, path: []const u8, output_path: []const u8) !void {
-    std.log.debug("Starting conversion for all entries in path: {s}\n", .{path});
+    // std.log.debug("Starting conversion for all entries in path: {s}\n", .{path});
     const openDirOptions = .{ .access_sub_paths = false, .iterate = true };
     var dir = try std.fs.openDirAbsolute(path, openDirOptions);
     defer dir.close();
 
     var it = dir.iterate();
 
-    std.log.debug("Current working directory: {s}\n", .{cwd});
+    // std.log.debug("Current working directory: {s}\n", .{cwd});
 
     while (try it.next()) |entry| {
         if (entry.kind != .directory) continue;
-        std.log.debug("Processing entry: {s}\n", .{entry.name});
+        try writer.print("Processing entry: {s}\n", .{entry.name});
 
         const next_path = try std.mem.concat(allocator, u8, &[_][]const u8{ path, "/", entry.name });
-        std.log.debug("Next path: {s}\n", .{next_path});
+        // std.log.debug("Next path: {s}\n", .{next_path});
         var sub_dir = try std.fs.openDirAbsolute(next_path, openDirOptions);
         defer sub_dir.close();
         var sub_it = sub_dir.iterate();
         while (try sub_it.next()) |sub_entry| {
             if (sub_entry.kind != .directory) continue;
-            std.log.debug("Processing sub-entry: {s}\n", .{sub_entry.name});
+            try writer.print("Processing sub-entry: {s}\n", .{sub_entry.name});
             const current_path = try std.mem.concat(allocator, u8, &[_][]const u8{ next_path, "/", sub_entry.name });
-            std.log.debug("Current path: {s}\n", .{current_path});
+            // std.log.debug("Current path: {s}\n", .{current_path});
             const info_json_path = try std.mem.concat(allocator, u8, &[_][]const u8{ current_path, "/entry.json" });
             const info_json_file = try std.fs.cwd().openFile(info_json_path, .{});
             const file_size = try info_json_file.getEndPos();
@@ -132,7 +145,7 @@ fn conv_all(allocator: std.mem.Allocator, path: []const u8, output_path: []const
             defer allocator.free(info_json_raw);
             _ = try info_json_file.readAll(info_json_raw);
 
-            std.log.debug("Parsing JSON from file: {s}\n", .{info_json_path});
+            // std.log.debug("Parsing JSON from file: {s}\n", .{info_json_path});
             const info_json = try parse_info_json(allocator, info_json_raw);
 
             const info = Info{
@@ -141,9 +154,8 @@ fn conv_all(allocator: std.mem.Allocator, path: []const u8, output_path: []const
             };
 
             try mkdir_recursively(info.output_file[0..std.mem.lastIndexOf(u8, info.output_file, "/").?]);
-            std.log.debug("{s}", .{info.output_file[0..std.mem.lastIndexOf(u8, info.output_file, "/").?]});
 
-            try conv(allocator, info); // TODO: multithread
+            try conv(allocator, info);
         }
     }
 }

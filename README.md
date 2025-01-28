@@ -25,10 +25,3 @@ Then, you can use the following command to extract the video:
 ```shell
 bilibili_extract /storage/emulated/0/Android/data/com.bilibili.app.in/download/ /storage/emulated/0/Movies/bilibili_extracted
 ```
-
-## TODOs
-
-- [ ] dynimic json parse based on std.json.dynamic.Value
-- [ ] skip err & log err list
-- [ ] multiple thread
-- [ ] sane log
