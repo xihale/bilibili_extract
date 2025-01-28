@@ -6,7 +6,7 @@ const Info = struct { input_path: []const u8, output_file: []const u8 };
 const writer = std.io.getStdOut().writer();
 
 // receive path & info
-fn conv(allocator: std.mem.Allocator, info: Info) !void {
+fn conv(allocator: std.mem.Allocator, info: Info) anyerror!void { // nesting error inference https://github.com/ziglang/zig/issues/2971
 
     // if exists, return the action flow
     blk: {
@@ -155,7 +155,10 @@ fn conv_all(allocator: std.mem.Allocator, path: []const u8, output_path: []const
 
             try mkdir_recursively(info.output_file[0..std.mem.lastIndexOf(u8, info.output_file, "/").?]);
 
-            try conv(allocator, info);
+            conv(allocator, info) catch |err| switch (err) {
+                InfoError.InvaildJson => try writer.writeAll("Invalid JSON file, possibly because it was not completely downloaded. Therefore skipped.\n"),
+                else => return err,
+            };
         }
     }
 }
