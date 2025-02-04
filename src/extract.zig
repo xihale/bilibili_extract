@@ -4,11 +4,22 @@ const mkdir_recursively = @import("mkdir_recursively.zig").mkdir_recursively;
 const Allocator = std.mem.Allocator;
 const json = std.json;
 
+const InfoError = error{
+    InvalidJson,
+};
+
+const ExtractError =
+    InfoError ||
+    std.fs.Dir.AccessError ||
+    std.fs.File.OpenError ||
+    std.process.Child.SpawnError ||
+    std.mem.Allocator.Error;
+
 /// to call ffmpeg to merge audio and video into output file
 fn extract(
     allocator: Allocator,
     info: Info,
-) anyerror!void { // nesting error inference https://github.com/ziglang/zig/issues/2971
+) ExtractError!void { // nesting error inference https://github.com/ziglang/zig/issues/2971
 
     defer {
         allocator.free(info.input_path);
@@ -63,10 +74,6 @@ fn extract(
 //         │   └── video.m4s
 //         ├── danmaku.xml
 //         └── entry.json
-
-const InfoError = error{
-    InvalidJson,
-};
 
 fn parse_info_json(allocator: Allocator, info_json_raw: []const u8, output_path: []const u8) !std.meta.Tuple(&.{ json.Parsed(json.Value), Info }) {
     const json_parsed = try json.parseFromSlice(json.Value, allocator, info_json_raw, .{});
