@@ -1,6 +1,6 @@
 const std = @import("std");
-const Info = @import("./type.zig").Info;
-const mkdir_recursively = @import("./utils/mkdir_recursively.zig").mkdir_recursively;
+const Info = @import("definitions.zig").Info;
+const mkdir_recursively = @import("mkdir_recursively.zig").mkdir_recursively;
 const Allocator = std.mem.Allocator;
 const json = std.json;
 
@@ -68,24 +68,35 @@ const InfoError = error{
     InvalidJson,
 };
 
-fn parse_info_json(allocator: Allocator, info_json_raw: []const u8) !std.meta.Tuple(&.{ json.Parsed(json.Value), Info }) {
+fn parse_info_json(allocator: Allocator, info_json_raw: []const u8, output_path: []const u8) !std.meta.Tuple(&.{ json.Parsed(json.Value), Info }) {
     const json_parsed = try json.parseFromSlice(json.Value, allocator, info_json_raw, .{});
     errdefer json_parsed.deinit();
 
     const value = json_parsed.value;
 
-    const title = value.object.get("title").?;
-    const type_tag = value.object.get("type_tag").?;
+    const title = value.object.get("title").?.string;
+    const type_tag = value.object.get("type_tag").?.string;
 
     // anime
     const output_file = if (value.object.get("ep")) |ep| blk: {
-        const index = ep.object.get("index").?;
-        const index_title = ep.object.get("index_title").?;
-        break :blk try std.mem.concat(allocator, u8, &[_][]const u8{ title.string, "/", index.string, ". ", index_title.string, ".mp4" });
-    } else try std.mem.concat(allocator, u8, &[_][]const u8{ value.object.get("page_data").?.object.get("part").?.string, ".mp4" });
+        const index = ep.object.get("index").?.string;
+        const index_title = ep.object.get("index_title").?.string;
+        break :blk try std.mem.concat(allocator, u8, &[_][]const u8{ title, "/", index, ". ", index_title, ".mp4" });
+    } else blk: {
+        const page_data = value.object.get("page_data").?.object;
+        const part = page_data.get("part").?.string;
+        if (!std.mem.eql(u8, title, part)) { // playlist
+            // mkdir
+            var dir = try std.fs.openDirAbsolute(output_path, .{});
+            try dir.makeDir(title);
+            break :blk try std.mem.concat(allocator, u8, &[_][]const u8{ title, "/", part, ".mp4" });
+        } else {
+            break :blk try std.mem.concat(allocator, u8, &[_][]const u8{ title, ".mp4" });
+        }
+    };
 
     return .{ json_parsed, Info{
-        .input_path = type_tag.string,
+        .input_path = type_tag,
         .output_file = output_file,
     } };
 }
@@ -99,12 +110,13 @@ pub fn extract_no_err(
 
 pub fn extract_all(allocator: Allocator, path: []const u8, output_path: []const u8) !void {
     const openDirOptions = .{ .access_sub_paths = false, .iterate = true };
-    var dir = try std.fs.openDirAbsolute(path, openDirOptions);
+    var dir = std.fs.openDirAbsolute(path, openDirOptions) catch |err| switch (err) {
+        error.FileNotFound => return, // skip invalid path
+        else => return err,
+    };
     defer dir.close();
 
     var it = dir.iterate();
-
-    // std.log.debug("Current working directory: {s}\n", .{cwd});
 
     var pool: std.Thread.Pool = undefined;
     try pool.init(.{ .allocator = allocator });
@@ -117,7 +129,6 @@ pub fn extract_all(allocator: Allocator, path: []const u8, output_path: []const 
 
         const next_path = try std.mem.concat(allocator, u8, &[_][]const u8{ path, "/", entry.name });
         defer allocator.free(next_path);
-        // std.log.debug("Next path: {s}\n", .{next_path});
         var sub_dir = try std.fs.openDirAbsolute(next_path, openDirOptions);
         defer sub_dir.close();
         var sub_it = sub_dir.iterate();
@@ -125,7 +136,6 @@ pub fn extract_all(allocator: Allocator, path: []const u8, output_path: []const 
             if (sub_entry.kind != .directory) continue;
             const current_path = try std.mem.concat(allocator, u8, &[_][]const u8{ next_path, "/", sub_entry.name });
             defer allocator.free(current_path);
-            // std.log.debug("Current path: {s}\n", .{current_path});
             const entry_json_path = try std.mem.concat(allocator, u8, &[_][]const u8{ current_path, "/entry.json" });
             defer allocator.free(entry_json_path);
             const entry_json = std.fs.cwd().openFile(entry_json_path, .{}) catch |err| switch (err) {
@@ -143,7 +153,7 @@ pub fn extract_all(allocator: Allocator, path: []const u8, output_path: []const 
             defer allocator.free(info_json_raw);
             _ = try entry_json.readAll(info_json_raw);
 
-            const parsed, const pre_info = parse_info_json(allocator, info_json_raw) catch continue; // skip invalid json
+            const parsed, const pre_info = parse_info_json(allocator, info_json_raw, output_path) catch continue; // skip invalid json
 
             defer {
                 // input_path is a reference to parsed->type_tag.string, so there is no need to free it.

@@ -48,7 +48,3 @@ If you prefer not to build it yourself, you can use a pre-built binary provided 
    ```
 
 This will process the downloaded Bilibili videos and save them in the specified output directory in a more accessible format.his will process the downloaded Bilibili videos and save them in the specified output directory in a more accessible format.
-
-## TODO
-
-- [ ] automatically detect the input directory & default output directory at `Movies/bilibili_extracted`
