@@ -116,7 +116,7 @@ pub fn extract_no_err(
 }
 
 pub fn extract_all(allocator: Allocator, path: []const u8, output_path: []const u8) !void {
-    const openDirOptions = .{ .access_sub_paths = false, .iterate = true };
+    const openDirOptions = std.fs.Dir.OpenDirOptions{ .access_sub_paths = false, .iterate = true };
     var dir = std.fs.openDirAbsolute(path, openDirOptions) catch |err| switch (err) {
         error.FileNotFound => return, // skip invalid path
         else => return err,
